@@ -286,3 +286,28 @@ exports.addNote = async (req, res) => {
 
   res.status(201).json({ note });
 };
+
+// DELETE /api/clients/:id — Cascade delete client and associated data
+exports.deleteClient = async (req, res) => {
+  const { id } = req.params;
+
+  const existing = await prisma.client.findUnique({ where: { id } });
+  if (!existing) {
+    return res.status(404).json({ message: 'Client not found' });
+  }
+
+  await prisma.$transaction([
+    prisma.gstReturn.deleteMany({ where: { clientId: id } }),
+    prisma.itrReturn.deleteMany({ where: { clientId: id } }),
+    prisma.task.deleteMany({ where: { clientId: id } }),
+    prisma.document.deleteMany({ where: { clientId: id } }),
+    prisma.credential.deleteMany({ where: { clientId: id } }),
+    prisma.followUp.deleteMany({ where: { clientId: id } }),
+    prisma.invoice.deleteMany({ where: { clientId: id } }),
+    prisma.note.deleteMany({ where: { clientId: id } }),
+    prisma.activityLog.deleteMany({ where: { clientId: id } }),
+    prisma.client.delete({ where: { id } }),
+  ]);
+
+  res.json({ message: `Client ${existing.name} deleted successfully` });
+};

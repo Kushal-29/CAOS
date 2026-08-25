@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   User, Building2, ShieldCheck, FolderLock, FileSpreadsheet, FileCheck,
   Calendar, CheckCircle2, Phone, Mail, Clock, Plus,
-  Eye, EyeOff, Send, ArrowLeft, History, FileText, Edit3
+  Eye, EyeOff, Send, ArrowLeft, History, FileText, Edit3, Trash2, AlertTriangle
 } from 'lucide-react';
 import { clientApi, credentialApi } from '../lib/api';
 import { Client } from '../types';
@@ -22,6 +22,22 @@ export default function ClientDetail() {
   // Secret Visibility Toggle for Credentials
   const [revealedSecrets, setRevealedSecrets] = useState<{ [key: string]: string }>({});
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDeleteClient = async () => {
+    if (!id) return;
+    try {
+      setIsDeleting(true);
+      await clientApi.delete(id);
+      toast.success('Client profile deleted successfully');
+      navigate('/clients');
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to delete client');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   // Notes Form State
   const [noteBody, setNoteBody] = useState('');
@@ -144,6 +160,12 @@ export default function ClientDetail() {
           >
             <Edit3 className="w-4 h-4" /> Edit Profile
           </button>
+          <button
+            onClick={() => setShowDeleteModal(true)}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-rose-50 dark:bg-rose-950/60 text-rose-600 hover:bg-rose-100 rounded-xl transition-colors"
+          >
+            <Trash2 className="w-4 h-4" /> Delete
+          </button>
         </div>
       </div>
 
@@ -154,6 +176,44 @@ export default function ClientDetail() {
           onClose={() => setShowEditModal(false)}
           onSuccess={fetchClientDetails}
         />
+      )}
+
+      {showDeleteModal && client && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 max-w-md w-full border border-slate-200 dark:border-slate-700 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="p-3 bg-rose-100 dark:bg-rose-950/60 rounded-xl">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">Delete Client Profile?</h3>
+                <p className="text-xs text-slate-500 font-mono">{client.clientCode}</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300">
+              Are you sure you want to delete <strong className="text-slate-900 dark:text-white">{client.name}</strong>? This action cannot be undone and will permanently remove all associated GST returns, ITR filings, tasks, and documents.
+            </p>
+
+            <div className="flex justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(false)}
+                className="px-4 py-2 text-xs font-semibold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteClient}
+                disabled={isDeleting}
+                className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors"
+              >
+                {isDeleting ? 'Deleting...' : 'Delete Client'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Exact 8 Phase 1 Tabs */}
