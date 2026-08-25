@@ -1,11 +1,30 @@
 import axios from 'axios';
 
-// Startup logging for API configuration verification
-console.log('API URL:', import.meta.env.VITE_API_URL);
+// Calculate and sanitize the API Base URL
+const getApiBaseUrl = (): string => {
+  const envUrl = import.meta.env.VITE_API_URL;
+  console.log('VITE_API_URL =', envUrl);
+
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim().length > 0) {
+    const cleanUrl = envUrl.trim().replace(/\/+$/, '');
+    return cleanUrl.endsWith('/api') ? cleanUrl : `${cleanUrl}/api`;
+  }
+
+  // Production deployment fallback when VITE_API_URL is missing at build time
+  if (import.meta.env.PROD) {
+    return 'https://caos-sf2m.onrender.com/api';
+  }
+
+  // Local development default fallback
+  return 'http://localhost:4000/api';
+};
+
+const BASE_URL = getApiBaseUrl();
+console.log('Final Axios Base URL =', BASE_URL);
 
 // Centralized Axios Instance
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL,
+  baseURL: BASE_URL,
   withCredentials: true,
 });
 
