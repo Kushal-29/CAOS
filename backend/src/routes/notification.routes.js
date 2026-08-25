@@ -1,0 +1,11 @@
+const router = require('express').Router();
+const ctrl = require('../controllers/notification.controller');
+const { requireAuth } = require('../middleware/auth');
+
+router.use(requireAuth);
+
+router.get('/', ctrl.listNotifications);
+router.patch('/:id/read', ctrl.markRead);
+router.patch('/read-all', ctrl.markAllRead);
+
+module.exports = router;
