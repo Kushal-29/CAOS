@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # CAOS — CA Operating System
 
 CAOS is a centralized operations platform for Chartered Accountant firms — replacing
@@ -94,3 +95,7 @@ Default seeded login: `admin@caos.dev` / `Admin@123` (change immediately in prod
 | AI Document Analyzer | ⏳ Phase 3 — not implemented |
 
 See `PRODUCT_SPEC.md` for the full phased roadmap this scaffold is built against.
+=======
+# CAOS
+Charted Account Operating System 
+>>>>>>> c09935ed832aefdec512513f437668d54c6e58bd

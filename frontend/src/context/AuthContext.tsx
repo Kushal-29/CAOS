@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { api } from '../lib/api';
+import { authApi } from '../lib/api';
 import type { User } from '../types';
 
 interface AuthContextValue {
@@ -21,23 +21,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       return;
     }
-    api
-      .get('/auth/me')
+    authApi
+      .me()
       .then((res) => setUser(res.data.user))
       .catch(() => localStorage.clear())
       .finally(() => setLoading(false));
   }, []);
 
   async function login(email: string, password: string) {
-    const { data } = await api.post('/auth/login', { email, password });
+    const { data } = await authApi.login({ email, password });
     localStorage.setItem('caos_access_token', data.accessToken);
     localStorage.setItem('caos_refresh_token', data.refreshToken);
     setUser(data.user);
   }
 
   async function logout() {
-    const refreshToken = localStorage.getItem('caos_refresh_token');
-    await api.post('/auth/logout', { refreshToken }).catch(() => {});
+    const refreshToken = localStorage.getItem('caos_refresh_token') || undefined;
+    await authApi.logout(refreshToken).catch(() => {});
     localStorage.clear();
     setUser(null);
   }
