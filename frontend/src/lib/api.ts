@@ -115,6 +115,7 @@ export const gstApi = {
   getWorkspace: (params?: any) => api.get('/gst', { params }).then((res) => res.data),
   createReturn: (data: any) => api.post('/gst', data).then((res) => res.data),
   autoGenerate: (period?: string) => api.post('/gst/auto-generate', { period }).then((res) => res.data),
+  resetMonthly: () => api.post('/gst/reset-monthly').then((res) => res.data),
   import: (rows: any[]) => api.post('/gst/import', { rows }).then((res) => res.data),
   export: () => api.get('/gst/export').then((res) => res.data.returns),
   updateStatus: (id: string, data: any) => api.patch(`/gst/${id}/status`, data).then((res) => res.data),
@@ -124,9 +125,11 @@ export const gstApi = {
 export const itrApi = {
   getWorkspace: (params?: any) => api.get('/itr', { params }).then((res) => res.data),
   createReturn: (data: any) => api.post('/itr', data).then((res) => res.data),
+  resetYearly: () => api.post('/itr/reset-yearly').then((res) => res.data),
   import: (rows: any[]) => api.post('/itr/import', { rows }).then((res) => res.data),
   export: () => api.get('/itr/export').then((res) => res.data.returns),
   updateStatus: (id: string, data: any) => api.patch(`/itr/${id}/status`, data).then((res) => res.data),
+  deleteReturn: (id: string) => api.delete(`/itr/${id}`).then((res) => res.data),
 };
 
 // Employee / Staff Management API

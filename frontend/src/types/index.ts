@@ -78,15 +78,20 @@ export interface GstReturn {
 
 export interface ItrReturn {
   id: string;
-  assessmentYear: string;
-  filingStatus: ItrFilingStatus;
-  refundStatus: RefundStatus;
-  noticeStatus: NoticeStatus;
+  assessmentYear?: string;
+  filingStatus?: ItrFilingStatus;
+  refundStatus?: RefundStatus;
+  noticeStatus?: NoticeStatus;
   acknowledgementNo?: string | null;
   filedDate?: string | null;
-  dueDate: string;
+  dueDate?: string;
   notes?: string | null;
-  client?: { id: string; name: string; clientCode: string; panNumber?: string | null };
+  password?: string | null;
+  price?: number;
+  isReceived?: boolean;
+  assignedTo?: string | null;
+  createdAt?: string;
+  client?: { id: string; name: string; clientCode: string; panNumber?: string | null; itPasswordHash?: string | null };
 }
 
 export interface Note {

@@ -10,6 +10,7 @@ router.get('/export', gstController.exportGstReturns);
 router.post('/', gstController.createGstReturn);
 router.post('/import', gstController.importGstReturns);
 router.post('/auto-generate', gstController.autoGenerateGstReturns);
+router.post('/reset-monthly', gstController.triggerGstMonthlyReset);
 router.patch('/:id/status', gstController.updateGstReturnStatus);
 
 module.exports = router;

@@ -433,15 +433,19 @@ model ItrReturn {
   id                String          @id @default(cuid())
   clientId          String
   client            Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  assessmentYear    String          // e.g. "AY 2025-26"
+  assessmentYear    String          @default("AY 2025-26")
   filingStatus      ItrFilingStatus @default(PENDING)
   refundStatus      RefundStatus    @default(N_A)
   refundAmount      Float?          @default(0.0)
   noticeStatus      NoticeStatus    @default(NO_NOTICE)
   acknowledgementNo String?
   filedDate         DateTime?
-  dueDate           DateTime
+  dueDate           DateTime        @default(now())
   notes             String?
+  password          String?         // Income Tax portal password
+  price             Float           @default(0.0) // Price / Fee amount
+  isReceived        Boolean         @default(false) // Payment Received or Not
+  assignedTo        String?         @default("Puneeth") // "Puneeth" | "Anil"
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 

@@ -3,200 +3,301 @@ const prisma = new PrismaClient();
 
 // Get ITR Workspace returns list + stats
 exports.getItrWorkspace = async (req, res) => {
-  const { assessmentYear, status, search } = req.query;
+  try {
+    const { status, search, assignedTo } = req.query;
 
-  const where = {
-    client: {
-      isItrClient: true,
+    const where = {
       ...(search ? {
         OR: [
-          { name: { contains: search, mode: 'insensitive' } },
-          { panNumber: { contains: search, mode: 'insensitive' } },
-          { clientCode: { contains: search, mode: 'insensitive' } },
+          { client: { name: { contains: search, mode: 'insensitive' } } },
+          { client: { panNumber: { contains: search, mode: 'insensitive' } } },
+          { client: { clientCode: { contains: search, mode: 'insensitive' } } },
+          { password: { contains: search, mode: 'insensitive' } },
         ],
       } : {}),
-    },
-    ...(assessmentYear ? { assessmentYear } : {}),
-    ...(status ? { filingStatus: status } : {}),
-  };
+      ...(status === 'RECEIVED' ? { isReceived: true } : {}),
+      ...(status === 'PENDING' || status === 'NOT_RECEIVED' ? { isReceived: false } : {}),
+      ...(assignedTo ? { assignedTo: { equals: assignedTo, mode: 'insensitive' } } : {}),
+    };
 
-  const returns = await prisma.itrReturn.findMany({
-    where,
-    include: {
-      client: {
-        select: { id: true, name: true, clientCode: true, panNumber: true, itrType: true, manager: { select: { id: true, name: true } } },
+    const returns = await prisma.itrReturn.findMany({
+      where,
+      include: {
+        client: {
+          select: { id: true, name: true, clientCode: true, panNumber: true, itPasswordHash: true },
+        },
       },
-    },
-    orderBy: { dueDate: 'asc' },
-  });
+      orderBy: { createdAt: 'desc' },
+    });
 
-  const totalItrClients = await prisma.client.count({ where: { isItrClient: true } });
-  const pendingCount = await prisma.itrReturn.count({ where: { filingStatus: 'PENDING' } });
-  const inProgressCount = await prisma.itrReturn.count({ where: { filingStatus: 'IN_PROGRESS' } });
-  const filedCount = await prisma.itrReturn.count({ where: { filingStatus: 'FILED' } });
-  const verifiedCount = await prisma.itrReturn.count({ where: { filingStatus: 'VERIFIED' } });
-  const noticeCount = await prisma.itrReturn.count({ where: { noticeStatus: 'NOTICE_ISSUED' } });
-  const refundPendingCount = await prisma.itrReturn.count({ where: { refundStatus: 'PENDING_ISSUANCE' } });
+    const allReturns = await prisma.itrReturn.findMany({
+      select: { price: true, isReceived: true, assignedTo: true },
+    });
 
-  res.json({
-    kpis: {
-      totalItrClients,
-      pendingCount,
-      inProgressCount,
-      filedCount,
-      verifiedCount,
-      noticeCount,
-      refundPendingCount,
-    },
-    returns,
-  });
+    const totalCount = allReturns.length;
+    const puneethCount = allReturns.filter(r => (r.assignedTo || 'Puneeth').toLowerCase() === 'puneeth').length;
+    const anilCount = allReturns.filter(r => (r.assignedTo || '').toLowerCase() === 'anil').length;
+
+    const receivedCount = allReturns.filter(r => r.isReceived).length;
+    const notReceivedCount = allReturns.filter(r => !r.isReceived).length;
+    const totalPrice = allReturns.reduce((sum, r) => sum + (r.price || 0), 0);
+    const totalReceivedPrice = allReturns.filter(r => r.isReceived).reduce((sum, r) => sum + (r.price || 0), 0);
+    const totalPendingPrice = allReturns.filter(r => !r.isReceived).reduce((sum, r) => sum + (r.price || 0), 0);
+
+    res.json({
+      kpis: {
+        totalCount,
+        puneethCount,
+        anilCount,
+        receivedCount,
+        notReceivedCount,
+        totalPrice,
+        totalReceivedPrice,
+        totalPendingPrice,
+      },
+      returns,
+    });
+  } catch (err) {
+    console.error('Error fetching ITR workspace:', err);
+    res.status(500).json({ message: 'Failed to fetch ITR workspace data', error: err.message });
+  }
 };
 
-// Update ITR Return status
+// Update ITR Return status / details
 exports.updateItrReturnStatus = async (req, res) => {
-  const { id } = req.params;
-  const { filingStatus, refundStatus, refundAmount, noticeStatus, acknowledgementNo, filedDate, notes } = req.body;
+  try {
+    const { id } = req.params;
+    const { name, panNumber, password, price, isReceived, assignedTo, filingStatus } = req.body;
 
-  const itrReturn = await prisma.itrReturn.update({
-    where: { id },
-    data: {
-      filingStatus: filingStatus || undefined,
-      refundStatus: refundStatus || undefined,
-      refundAmount: refundAmount !== undefined ? parseFloat(refundAmount) : undefined,
-      noticeStatus: noticeStatus || undefined,
-      acknowledgementNo: acknowledgementNo || undefined,
-      filedDate: filedDate ? new Date(filedDate) : (filingStatus === 'FILED' ? new Date() : undefined),
-      notes: notes || undefined,
-    },
-    include: { client: true },
-  });
+    const existingReturn = await prisma.itrReturn.findUnique({
+      where: { id },
+      include: { client: true },
+    });
 
-  // Log activity
-  await prisma.activityLog.create({
-    data: {
-      userId: req.user.id,
-      clientId: itrReturn.clientId,
-      entityType: 'FILING',
-      entityId: itrReturn.id,
-      action: 'STATUS_CHANGE',
-      metadata: { assessmentYear: itrReturn.assessmentYear, filingStatus: itrReturn.filingStatus },
-    },
-  });
+    if (!existingReturn) {
+      return res.status(404).json({ message: 'ITR record not found' });
+    }
 
-  res.json(itrReturn);
+    // Update Client if name or panNumber changed
+    if (existingReturn.clientId && (name || panNumber)) {
+      await prisma.client.update({
+        where: { id: existingReturn.clientId },
+        data: {
+          ...(name ? { name } : {}),
+          ...(panNumber ? { panNumber } : {}),
+          ...(password ? { itPasswordHash: password } : {}),
+        },
+      });
+    }
+
+    const itrReturn = await prisma.itrReturn.update({
+      where: { id },
+      data: {
+        ...(password !== undefined ? { password } : {}),
+        ...(price !== undefined ? { price: parseFloat(price || 0) } : {}),
+        ...(isReceived !== undefined ? { isReceived: Boolean(isReceived) } : {}),
+        ...(assignedTo !== undefined ? { assignedTo } : {}),
+        ...(filingStatus ? { filingStatus } : {}),
+      },
+      include: { client: true },
+    });
+
+    res.json(itrReturn);
+  } catch (err) {
+    console.error('Error updating ITR return:', err);
+    res.status(500).json({ message: 'Failed to update ITR record', error: err.message });
+  }
 };
 
 // Create single ITR Return
 exports.createItrReturn = async (req, res) => {
-  const { clientId, assessmentYear, filingStatus, refundStatus, refundAmount, noticeStatus, acknowledgementNo, notes } = req.body;
+  try {
+    const { clientId, name, panNumber, password, price, isReceived, assignedTo } = req.body;
 
-  const itrReturn = await prisma.itrReturn.create({
-    data: {
-      clientId,
-      assessmentYear: assessmentYear || 'AY 2025-26',
-      filingStatus: filingStatus || 'PENDING',
-      refundStatus: refundStatus || 'N_A',
-      refundAmount: parseFloat(refundAmount || 0),
-      noticeStatus: noticeStatus || 'NO_NOTICE',
-      acknowledgementNo,
-      dueDate: new Date('2026-07-31'),
-      notes,
-    },
-    include: { client: true },
-  });
+    let targetClientId = clientId;
 
-  res.status(201).json(itrReturn);
+    if (!targetClientId && name) {
+      // Find existing client by PAN or Name, or create a new client
+      let client = null;
+      if (panNumber) {
+        client = await prisma.client.findFirst({
+          where: { panNumber: { equals: panNumber.trim(), mode: 'insensitive' } },
+        });
+      }
+      if (!client) {
+        client = await prisma.client.findFirst({
+          where: { name: { equals: name.trim(), mode: 'insensitive' } },
+        });
+      }
+
+      if (!client) {
+        const clientCount = await prisma.client.count();
+        const clientCode = `CAOS-${String(clientCount + 1).padStart(6, '0')}`;
+        client = await prisma.client.create({
+          data: {
+            clientCode,
+            name: name.trim(),
+            panNumber: panNumber ? panNumber.trim().toUpperCase() : null,
+            mobile: '0000000000',
+            isItrClient: true,
+            itPasswordHash: password || null,
+          },
+        });
+      }
+      targetClientId = client.id;
+    }
+
+    if (!targetClientId) {
+      return res.status(400).json({ message: 'Client ID or Name is required' });
+    }
+
+    const itrReturn = await prisma.itrReturn.create({
+      data: {
+        clientId: targetClientId,
+        password: password || null,
+        price: parseFloat(price || 0),
+        isReceived: isReceived === true || isReceived === 'true' || isReceived === 'RECEIVED',
+        assignedTo: assignedTo || 'Puneeth',
+        assessmentYear: 'AY 2025-26',
+        filingStatus: 'PENDING',
+        dueDate: new Date(),
+      },
+      include: { client: true },
+    });
+
+    res.status(201).json(itrReturn);
+  } catch (err) {
+    console.error('Error creating ITR return:', err);
+    res.status(500).json({ message: 'Failed to create ITR record', error: err.message });
+  }
+};
+
+// Delete ITR Return
+exports.deleteItrReturn = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await prisma.itrReturn.delete({ where: { id } });
+    res.json({ message: 'ITR record deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting ITR return:', err);
+    res.status(500).json({ message: 'Failed to delete ITR record', error: err.message });
+  }
 };
 
 // Bulk Import ITR Returns from Excel
 exports.importItrReturns = async (req, res) => {
-  const { rows } = req.body;
-  if (!Array.isArray(rows) || rows.length === 0) {
-    return res.status(400).json({ message: 'No ITR rows provided' });
-  }
-
-  const results = { success: 0, failed: 0, errors: [] };
-
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    try {
-      const clientCodeOrPan = row['Client Code'] || row['PAN'] || row['clientCode'] || row['pan'];
-      const assessmentYear = row['Assessment Year'] || row['AY'] || row['assessmentYear'] || 'AY 2025-26';
-      const filingStatus = (row['Filing Status'] || row['status'] || 'PENDING').toString().toUpperCase().replace(/ /g, '_');
-      const refundStatus = (row['Refund Status'] || row['refundStatus'] || 'N_A').toString().toUpperCase().replace(/ /g, '_');
-      const refundAmount = parseFloat(row['Refund Amount'] || row['refundAmount'] || 0);
-      const noticeStatus = (row['Notice Status'] || row['noticeStatus'] || 'NO_NOTICE').toString().toUpperCase().replace(/ /g, '_');
-      const ackNo = row['Ack Number'] || row['acknowledgementNo'] || null;
-      const notes = row['Remarks'] || row['notes'] || null;
-
-      if (!clientCodeOrPan) {
-        results.failed++;
-        results.errors.push(`Row ${i + 1}: Client Code or PAN required.`);
-        continue;
-      }
-
-      const client = await prisma.client.findFirst({
-        where: {
-          OR: [
-            { clientCode: { equals: clientCodeOrPan.toString().trim(), mode: 'insensitive' } },
-            { panNumber: { equals: clientCodeOrPan.toString().trim(), mode: 'insensitive' } },
-          ],
-        },
-      });
-
-      if (!client) {
-        results.failed++;
-        results.errors.push(`Row ${i + 1}: No client found with Client Code / PAN "${clientCodeOrPan}".`);
-        continue;
-      }
-
-      await prisma.itrReturn.create({
-        data: {
-          clientId: client.id,
-          assessmentYear,
-          filingStatus: ['PENDING', 'DOCUMENTS_AWAITED', 'READY_FOR_FILING', 'IN_PROGRESS', 'FILED', 'VERIFIED', 'REJECTED', 'OVERDUE'].includes(filingStatus) ? filingStatus : 'PENDING',
-          refundStatus: ['N_A', 'PROCESSED', 'PENDING_ISSUANCE', 'ISSUED', 'REJECTED'].includes(refundStatus) ? refundStatus : 'N_A',
-          refundAmount,
-          noticeStatus: ['NO_NOTICE', 'NOTICE_ISSUED', 'RESPONDED', 'RESOLVED'].includes(noticeStatus) ? noticeStatus : 'NO_NOTICE',
-          acknowledgementNo: ackNo,
-          dueDate: new Date('2026-07-31'),
-          notes,
-        },
-      });
-
-      results.success++;
-    } catch (err) {
-      results.failed++;
-      results.errors.push(`Row ${i + 1}: ${err.message}`);
+  try {
+    const { rows } = req.body;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ message: 'No ITR rows provided' });
     }
-  }
 
-  res.json({ message: `Imported ${results.success} ITR return records. ${results.failed} failed.`, results });
+    const results = { success: 0, failed: 0, errors: [] };
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      try {
+        const name = row['Name'] || row['Client Name'] || row['name'] || '';
+        const panNumber = row['PAN Number'] || row['PAN'] || row['panNumber'] || row['pan'] || '';
+        const password = row['Password'] || row['itPassword'] || row['password'] || '';
+        const price = parseFloat(row['Price'] || row['Amount'] || row['Fee'] || row['price'] || 0);
+        const rawReceived = (row['Received or Not'] || row['Received'] || row['Status'] || row['isReceived'] || '').toString().trim().toUpperCase();
+        const isReceived = ['YES', 'RECEIVED', 'TRUE', '1', 'PAID'].includes(rawReceived);
+        const assignedTo = row['Assigned To'] || row['Assigned'] || row['Owner'] || row['assignedTo'] || 'Puneeth';
+
+        if (!name && !panNumber) {
+          results.failed++;
+          results.errors.push(`Row ${i + 1}: Name or PAN Number required.`);
+          continue;
+        }
+
+        let client = null;
+        if (panNumber) {
+          client = await prisma.client.findFirst({
+            where: { panNumber: { equals: panNumber.trim(), mode: 'insensitive' } },
+          });
+        }
+        if (!client && name) {
+          client = await prisma.client.findFirst({
+            where: { name: { equals: name.trim(), mode: 'insensitive' } },
+          });
+        }
+
+        if (!client) {
+          const clientCount = await prisma.client.count();
+          const clientCode = `CAOS-${String(clientCount + 1).padStart(6, '0')}`;
+          client = await prisma.client.create({
+            data: {
+              clientCode,
+              name: name.trim() || 'Imported Client',
+              panNumber: panNumber ? panNumber.trim().toUpperCase() : null,
+              mobile: '0000000000',
+              isItrClient: true,
+              itPasswordHash: password || null,
+            },
+          });
+        }
+
+        await prisma.itrReturn.create({
+          data: {
+            clientId: client.id,
+            password: password || null,
+            price,
+            isReceived,
+            assignedTo: assignedTo.toString().trim(),
+            assessmentYear: 'AY 2025-26',
+            filingStatus: 'PENDING',
+            dueDate: new Date(),
+          },
+        });
+
+        results.success++;
+      } catch (err) {
+        results.failed++;
+        results.errors.push(`Row ${i + 1}: ${err.message}`);
+      }
+    }
+
+    res.json({ message: `Imported ${results.success} ITR records. ${results.failed} failed.`, results });
+  } catch (err) {
+    console.error('Error importing ITR returns:', err);
+    res.status(500).json({ message: 'Failed to import ITR records', error: err.message });
+  }
 };
 
 // Export ITR returns to JSON for Excel download
 exports.exportItrReturns = async (req, res) => {
-  const returns = await prisma.itrReturn.findMany({
-    orderBy: { dueDate: 'desc' },
-    include: {
-      client: { select: { name: true, clientCode: true, panNumber: true, itrType: true } },
-    },
-  });
+  try {
+    const returns = await prisma.itrReturn.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        client: { select: { name: true, panNumber: true, clientCode: true } },
+      },
+    });
 
-  const exportData = returns.map((r) => ({
-    'Client Code': r.client?.clientCode,
-    'Client Name': r.client?.name,
-    PAN: r.client?.panNumber,
-    'ITR Form': r.client?.itrType,
-    'Assessment Year': r.assessmentYear,
-    'Filing Status': r.filingStatus,
-    'Refund Status': r.refundStatus,
-    'Refund Amount': r.refundAmount || 0,
-    'Notice Status': r.noticeStatus,
-    'Ack / ITR-V Number': r.acknowledgementNo || '',
-    'Filed Date': r.filedDate ? new Date(r.filedDate).toLocaleDateString() : '',
-    Remarks: r.notes || '',
-  }));
+    const exportData = returns.map((r) => ({
+      'Name': r.client?.name || '',
+      'PAN Number': r.client?.panNumber || '',
+      'Password': r.password || r.client?.itPasswordHash || '',
+      'Price': r.price || 0,
+      'Received or Not': r.isReceived ? 'Received' : 'Not Received',
+      'Assigned To': r.assignedTo || 'Puneeth',
+    }));
 
-  res.json({ returns: exportData });
+    res.json({ returns: exportData });
+  } catch (err) {
+    console.error('Error exporting ITR returns:', err);
+    res.status(500).json({ message: 'Failed to export ITR records', error: err.message });
+  }
 };
+
+exports.triggerItrYearlyReset = async (req, res) => {
+  try {
+    const { resetItrYearly } = require('../services/cron.service');
+    const result = await resetItrYearly();
+    res.json({ message: 'Yearly ITR reset executed successfully.', result });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to execute yearly ITR reset', error: err.message });
+  }
+};
+

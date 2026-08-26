@@ -89,9 +89,12 @@ app.use('/api/ai', aiRoutes);
 app.use(notFound);
 app.use(errorHandler);
 
+const { initCronScheduler } = require('./services/cron.service');
+
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`CAOS backend listening on port ${PORT}`);
+  initCronScheduler();
 });
 
 module.exports = app;

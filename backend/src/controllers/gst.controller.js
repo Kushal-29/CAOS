@@ -244,3 +244,13 @@ exports.autoGenerateGstReturns = async (req, res) => {
 
   res.json({ message: `Auto-generated ${createdCount} GST return records for period ${periodStr}`, createdCount });
 };
+
+exports.triggerGstMonthlyReset = async (req, res) => {
+  try {
+    const { resetGstMonthly } = require('../services/cron.service');
+    const result = await resetGstMonthly();
+    res.json({ message: 'Monthly GST reset executed successfully.', result });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to execute monthly GST reset', error: err.message });
+  }
+};
